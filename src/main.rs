@@ -3,8 +3,104 @@
 // Copyright 2021 Simon Frankau
 //
 
+use std::str::FromStr;
+
 #[cfg(test)]
 use std::collections::HashSet;
+
+////////////////////////////////////////////////////////////////////////
+// Input parsing
+//
+
+const PARSE_ERR_SECTIONS: &str =
+    "Expected three sections separate by lines containing '--'.";
+
+const PARSE_ERR_SEC1: &str =
+    "Section 1 should be a single line containing 2 numbers.";
+
+#[derive(Debug, Eq, PartialEq)]
+struct Input {
+    rows: Vec<usize>,
+    columns: Vec<usize>,
+}
+
+// Input is divided into three sections with lines containing just '--'
+// (why not a blank line? As that's a valid line in sections 2 and 3).
+//
+// Each section is a number of lines. Each line contains 0 or more
+// integers, separated by spaces.
+//
+// The sections are as follows:
+//
+// 1. A single line, containing 2 numbers. These are the width and
+//    height of the grid respectively, and thus the number of rows
+//    in sections 2 and 3.
+//
+// 2. The horizontal constraints, as written in the puzzles. There is
+//    one line per row, and an empty row represents no filled-in blocks
+//    on that row. Each number represents a number of filled in squares
+//    in that block (left-to-right), each block is separated by at least
+//    one blank square.
+//
+// 3. Vertical constraints, in the same style as #2, running
+//    top-to-bottom. A final '\n' is allowed - newlines may be
+//    line terminators, rather than separators.
+impl FromStr for Input {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // Add line numbers to make errors more understandable.
+        let lines: Vec<(&str, usize)> = s.split('\n').zip(1..).collect();
+
+        let section_markers = lines
+            .iter()
+            .filter_map(|&(s, line_num)|
+                if s == "--" {
+                    Some(line_num)
+                } else {
+                    None
+                })
+            .collect::<Vec<usize>>();
+
+        if section_markers.len() != 2 {
+            return Err(PARSE_ERR_SECTIONS.to_string());
+        }
+
+        // We have our sections, let's start parsing!
+
+        fn parse_line(line: (&str, usize)) -> Result<Vec<usize>, String> {
+            let (line, line_num) = line;
+            line
+                .trim()
+                .split_whitespace()
+                .map(|xs| xs
+                    .parse::<usize>()
+                    .map_err(|e| format!("Line {}: {}", line_num, e)))
+                .collect::<Result<Vec<_>, String>>()
+        }
+
+        // First section should be single line...
+        if section_markers[0] != 2 {
+            return Err(format!("Line 2: {}", PARSE_ERR_SEC1));
+        }
+
+        let (width, height) = {
+            let xs = parse_line(lines[0])?;
+            if xs.len() != 2 {
+                return Err(format!("Line 1: {}", PARSE_ERR_SEC1));
+            }
+            (xs[0], xs[1])
+        };
+
+        // TODO: Actually parse sections 2 and 3!
+
+        Ok(Input { rows: Vec::new(), columns: Vec::new() })
+    }
+}
+
+////////////////////////////////////////////////////////////////////////
+// Bitmap generation and printing
+//
 
 // Generate a text representation of a bitmap.
 //
@@ -99,6 +195,32 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_parse_sections_incorrect() {
+        assert_eq!("OOPS".parse::<Input>(),
+                   Err(PARSE_ERR_SECTIONS.to_string()));
+        assert_eq!("OOPS\n--\nSAD\n--\nToo many\n--\n???".parse::<Input>(),
+                   Err(PARSE_ERR_SECTIONS.to_string()));
+    }
+
+    #[test]
+    fn test_parse_section1_bad_line_count() {
+        assert_eq!("1 2\n3 4\n--\n--\n".parse::<Input>(),
+                   Err(format!("Line 2: {}", PARSE_ERR_SEC1)));
+    }
+
+    #[test]
+    fn test_parse_section1_bad_element_count() {
+        assert_eq!("1 2 3\n--\n--\n".parse::<Input>(),
+                   Err(format!("Line 1: {}", PARSE_ERR_SEC1)));
+    }
+
+    #[test]
+    fn test_parse_section1_bad_element() {
+        assert_eq!("1 cheese 3\n--\n--\n".parse::<Input>(),
+                   Err("Line 1: invalid digit found in string".to_string()));
+    }
 
     #[test]
     fn test_bitmap_to_string_empty() {
