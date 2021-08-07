@@ -20,8 +20,8 @@ const PARSE_ERR_SEC1: &str =
 
 #[derive(Debug, Eq, PartialEq)]
 struct Input {
-    rows: Vec<usize>,
-    columns: Vec<usize>,
+    rows: Vec<Vec<usize>>,
+    columns: Vec<Vec<usize>>,
 }
 
 // Input is divided into three sections with lines containing just '--'
@@ -92,9 +92,42 @@ impl FromStr for Input {
             (xs[0], xs[1])
         };
 
-        // TODO: Actually parse sections 2 and 3!
+        // Parse section 2:
+        let section2 = &lines[section_markers[0]..section_markers[1]-1];
+        if section2.len() != height {
+            return Err(format!(
+                "Line {}: Expected {} rows, found {} in section 2",
+                section_markers[0] + 1,
+                height,
+                section2.len()));
+        }
+        let rows = section2
+            .iter()
+            .map(|&line| parse_line(line))
+            .collect::<Result<Vec<Vec<usize>>, String>>()?;
 
-        Ok(Input { rows: Vec::new(), columns: Vec::new() })
+        // Parse section 3, which is like section 2, with an optional
+        // terminating newline.
+        let mut section3 = &lines[section_markers[1]..];
+        let s3_len = section3.len();
+        if s3_len == width + 1 && section3[s3_len - 1].0 == "" {
+            // Remove optional trailing newline.
+            section3 = &section3[..s3_len - 1];
+        }
+
+        if section3.len() != width {
+            return Err(format!(
+                "Line {}: Expected {} columns, found {} in section 3",
+                section_markers[1] + 1,
+                width,
+                section3.len()));
+        }
+        let columns = section3
+            .iter()
+            .map(|&line| parse_line(line))
+            .collect::<Result<Vec<Vec<usize>>, String>>()?;
+
+        Ok(Input { rows: rows, columns: columns })
     }
 }
 
@@ -184,6 +217,9 @@ fn expand(counts: &[usize], n: usize) -> Vec<u64> {
     accumulator
 }
 
+////////////////////////////////////////////////////////////////////////
+// Main entry point
+
 fn main() {
     let n = 5;
     let results = expand(&vec![1, 2], n);
@@ -192,9 +228,15 @@ fn main() {
     }
 }
 
+////////////////////////////////////////////////////////////////////////
+// Tests
+//
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+// Parsing tests
 
     #[test]
     fn test_parse_sections_incorrect() {
@@ -221,6 +263,53 @@ mod tests {
         assert_eq!("1 cheese 3\n--\n--\n".parse::<Input>(),
                    Err("Line 1: invalid digit found in string".to_string()));
     }
+
+    #[test]
+    fn test_parse_section2_bad_line_count() {
+        assert_eq!("1 3\n--\n7\n42 13\n--\n".parse::<Input>(),
+                   Err("Line 3: Expected 3 rows, found 2 in section 2".to_string()));
+    }
+
+    #[test]
+    fn test_parse_section2_bad_element() {
+        assert_eq!("1 2\n--\n7\n42 what? 13\n--\n".parse::<Input>(),
+                   Err("Line 4: invalid digit found in string".to_string()));
+    }
+
+    #[test]
+    fn test_parse_section3_bad_line_count() {
+        assert_eq!("4 2\n--\n7\n42 13\n--\n17".parse::<Input>(),
+                   Err("Line 6: Expected 4 columns, found 1 in section 3".to_string()));
+    }
+
+    #[test]
+    fn test_parse_section3_bad_element() {
+        assert_eq!("1 2\n--\n7\n42 13\n--\n0x17".parse::<Input>(),
+                   Err("Line 6: invalid digit found in string".to_string()));
+    }
+
+    #[test]
+    fn test_parse_success() {
+        assert_eq!("1 2\n--\n7\n42 13\n--\n17".parse::<Input>(),
+                   Ok(Input {
+                       rows: vec![vec![7], vec![42, 13]],
+                       columns: vec![vec![17]],
+                   }));
+    }
+
+    #[test]
+    fn test_parse_trailing_newline() {
+        assert_eq!("1 2\n--\n7\n42 13\n--\n17".parse::<Input>().unwrap(),
+                   "1 2\n--\n7\n42 13\n--\n17\n".parse::<Input>().unwrap())
+    }
+
+    #[test]
+    fn test_parse_extra_whitespace() {
+        assert_eq!("1 2\n--\n7\n42 13\n--\n17".parse::<Input>().unwrap(),
+                   " 1  2\n--\n7\n42\t13\n--\n17 \n".parse::<Input>().unwrap())
+    }
+
+// Bitmap tests
 
     #[test]
     fn test_bitmap_to_string_empty() {
