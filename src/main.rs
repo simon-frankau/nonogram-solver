@@ -3,6 +3,8 @@
 // Copyright 2021 Simon Frankau
 //
 
+use std::fmt;
+use std::fmt::Write;
 use std::str::FromStr;
 
 #[cfg(test)]
@@ -303,6 +305,62 @@ impl Solver {
         let col_alts: usize = self.poss_cols.iter().map(|x| x.len()).sum();
 
         row_alts + col_alts - self.width - self.height
+    }
+
+    // Apply constraints in the horizontal direction
+    fn constrain_h(&self) -> Solver {
+        let new_poss_rows = self.poss_rows
+            .iter()
+            .zip(self.known_filled.iter())
+            .zip(self.known_blanks.iter())
+            .map(|((row, &filled), &blank)|
+                    constrain_poss(&row, filled, blank))
+            .collect::<Vec<_>>();
+
+        let new_filled_and_blanks = new_poss_rows
+            .iter()
+            .zip(self.known_filled.iter())
+            .zip(self.known_blanks.iter())
+            .map(|((row, &filled), &blank)|
+                    constrain_known(&row, self.width, filled, blank))
+            .collect::<Vec<_>>();
+
+        let new_filled = new_filled_and_blanks
+            .iter()
+            .map(|(filled, _)| *filled)
+            .collect::<Vec<_>>();
+        let new_blanks = new_filled_and_blanks
+            .iter()
+            .map(|(_, blank)| *blank)
+            .collect::<Vec<_>>();
+
+        Solver {
+            poss_rows: new_poss_rows,
+            poss_cols: self.poss_cols.clone(),
+            known_filled: new_filled,
+            known_blanks: new_blanks,
+            ..*self
+        }
+    }
+}
+
+impl fmt::Display for Solver {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (filled, blank) in self.known_filled
+            .iter()
+            .zip(self.known_blanks.iter()) {
+            for i in (0..self.width).rev() {
+                let c = match ((filled >> i) & 1, (blank >> i) & 1) {
+                    (0, 0) => '?',
+                    (1, 0) => 'X',
+                    (0, 1) => '.',
+                    (_, _) => panic!("Internal error"),
+                };
+                f.write_char(c)?;
+            }
+            f.write_char('\n')?;
+        }
+        Ok(())
     }
 }
 
