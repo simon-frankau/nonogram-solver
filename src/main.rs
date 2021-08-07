@@ -21,7 +21,7 @@ const PARSE_ERR_SEC1: &str =
 #[derive(Debug, Eq, PartialEq)]
 struct Input {
     rows: Vec<Vec<usize>>,
-    columns: Vec<Vec<usize>>,
+    cols: Vec<Vec<usize>>,
 }
 
 // Input is divided into three sections with lines containing just '--'
@@ -55,7 +55,7 @@ impl FromStr for Input {
         let section_markers = lines
             .iter()
             .filter_map(|&(s, line_num)|
-                if s == "--" {
+                if s.trim() == "--" {
                     Some(line_num)
                 } else {
                     None
@@ -110,7 +110,7 @@ impl FromStr for Input {
         // terminating newline.
         let mut section3 = &lines[section_markers[1]..];
         let s3_len = section3.len();
-        if s3_len == width + 1 && section3[s3_len - 1].0 == "" {
+        if s3_len == width + 1 && section3[s3_len - 1].0.trim() == "" {
             // Remove optional trailing newline.
             section3 = &section3[..s3_len - 1];
         }
@@ -122,12 +122,12 @@ impl FromStr for Input {
                 width,
                 section3.len()));
         }
-        let columns = section3
+        let cols = section3
             .iter()
             .map(|&line| parse_line(line))
             .collect::<Result<Vec<Vec<usize>>, String>>()?;
 
-        Ok(Input { rows: rows, columns: columns })
+        Ok(Input { rows: rows, cols: cols })
     }
 }
 
@@ -218,7 +218,51 @@ fn expand(counts: &[usize], n: usize) -> Vec<u64> {
 }
 
 ////////////////////////////////////////////////////////////////////////
+// Solving logic
+//
+
+#[derive(Debug)]
+struct Solver {
+    width: usize,
+    height: usize,
+    // For each row and column, the solutions that remain possible.
+    poss_rows: Vec<Vec<u64>>,
+    poss_cols: Vec<Vec<u64>>,
+    // The solution so far. A bitmap per row, with bit set if that
+    // cell is known filled or blank.
+    known_filled: Vec<u64>,
+    known_blanks: Vec<u64>,
+}
+
+impl Solver {
+    fn from_input(input: &Input) -> Solver {
+        let w = input.cols.len();
+        let h = input.rows.len();
+
+        Solver {
+            width: w,
+            height: h,
+            poss_rows: input.rows.iter().map(|v| expand(v, w)).collect(),
+            poss_cols: input.cols.iter().map(|v| expand(v, h)).collect(),
+            known_filled: vec![0; h],
+            known_blanks: vec![0; h],
+        }
+    }
+
+    // Return number of alternatives in the solution. Used to check that
+    // this is reducing every iteration, so that we're converging. Zero
+    // means we have a unique solution
+    fn size(&self) -> usize {
+        let row_alts: usize = self.poss_rows.iter().map(|x| x.len()).sum();
+        let col_alts: usize = self.poss_cols.iter().map(|x| x.len()).sum();
+
+        row_alts + col_alts - self.width - self.height
+    }
+}
+
+////////////////////////////////////////////////////////////////////////
 // Main entry point
+//
 
 fn main() {
     let n = 5;
@@ -293,7 +337,7 @@ mod tests {
         assert_eq!("1 2\n--\n7\n42 13\n--\n17".parse::<Input>(),
                    Ok(Input {
                        rows: vec![vec![7], vec![42, 13]],
-                       columns: vec![vec![17]],
+                       cols: vec![vec![17]],
                    }));
     }
 
@@ -306,7 +350,7 @@ mod tests {
     #[test]
     fn test_parse_extra_whitespace() {
         assert_eq!("1 2\n--\n7\n42 13\n--\n17".parse::<Input>().unwrap(),
-                   " 1  2\n--\n7\n42\t13\n--\n17 \n".parse::<Input>().unwrap())
+                   " 1  2\n -- \n7\n42\t13\n--\n17 \n".parse::<Input>().unwrap())
     }
 
 // Bitmap tests
@@ -424,5 +468,94 @@ mod tests {
         let n = 40;
         let bitmaps = expand(&vec![1, 2, 3, 4, 5], n);
         assert_eq!(bitmaps.len(), 65780);
+    }
+
+    // Solver tests
+
+    #[test]
+    fn test_solver_from_input() {
+        let input = "5 3
+                     --
+                     1 2
+                     1
+                     2
+                     --
+
+                     1
+                     2
+                     1
+
+                     ".parse::<Input>().unwrap();
+
+        let solver = Solver::from_input(&input);
+        let w = 5;
+        let h = 3;
+
+        assert_eq!(solver.width, w);
+        assert_eq!(solver.height, h);
+
+        assert_eq!(solver.poss_rows.len(), h);
+        assert!(is_equiv(&solver.poss_rows[0], w,
+                         &vec!["X.XX.", "X..XX", ".X.XX"]));
+        assert!(is_equiv(&solver.poss_rows[1], w,
+                         &vec!["X....", ".X...", "..X..", "...X.", "....X"]));
+        assert!(is_equiv(&solver.poss_rows[2], w,
+                         &vec!["XX...", ".XX..", "..XX.", "...XX"]));
+
+        assert_eq!(solver.poss_cols.len(), w);
+        assert!(is_equiv(&solver.poss_cols[0], h,
+                         &vec!["..."]));
+        assert!(is_equiv(&solver.poss_cols[1], h,
+                         &vec!["X..", ".X.", "..X"]));
+        assert!(is_equiv(&solver.poss_cols[2], h,
+                         &vec!["XX.", ".XX"]));
+        assert!(is_equiv(&solver.poss_cols[3], h,
+                         &vec!["X..", ".X.", "..X"]));
+        assert!(is_equiv(&solver.poss_cols[4], h,
+                         &vec!["..."]));
+
+        assert_eq!(solver.known_filled.len(), h);
+        assert!(solver.known_filled.iter().all(|&x| x == 0));
+
+        assert_eq!(solver.known_blanks.len(), h);
+        assert!(solver.known_blanks.iter().all(|&x| x == 0));
+    }
+
+    #[test]
+    fn test_solver_size() {
+        let input = "5 3
+                     --
+                     1 2
+                     1
+                     2
+                     --
+
+                     1
+                     2
+                     1
+
+                     ".parse::<Input>().unwrap();
+
+        let solver = Solver::from_input(&input);
+
+        // Count row solutions, and column solutions.
+        assert_eq!(solver.size(),
+                   (3 + 5 + 4) - 3 + (1 + 3 + 2 + 3 + 1) - 5);
+    }
+
+    #[test]
+    fn test_solver_size_on_completion() {
+        let input = "2 1
+                     --
+                     2
+                     --
+                     1
+                     1
+                     ".parse::<Input>().unwrap();
+
+        let solver = Solver::from_input(&input);
+
+        // Already a unique solution.
+        assert_eq!(solver.size(), 0);
     }
 }
