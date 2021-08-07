@@ -158,7 +158,7 @@ fn bitmap_to_string(bitmap: u64, n: usize) -> String {
 // and counts.len(), but... meh. In practice counts.len() doesn't tend
 // to be huge, and modern computers are fast with lots of RAM.
 fn expand(counts: &[usize], n: usize) -> Vec<u64> {
-    assert!(n <= 64);
+    assert!(n <= 64, "Width and height must be less than or equal to 64");
 
     // Annoying special case - only case where the minimum number of
     // blank blocks needed is not counts.len() - 1. Deal with it
@@ -220,6 +220,52 @@ fn expand(counts: &[usize], n: usize) -> Vec<u64> {
 ////////////////////////////////////////////////////////////////////////
 // Solving logic
 //
+
+// Constrain the possibilities list, based on the known filled and blank
+// cells. Any solution that clashes with known cells is discarded.
+fn constrain_poss(
+    poss: &[u64],
+    known_filled: u64,
+    known_blank: u64
+) -> Vec<u64> {
+   let res: Vec<u64> = poss
+       .iter()
+       .filter(|&x| x & known_blank == 0 && !x & known_filled == 0)
+       .cloned()
+       .collect();
+
+   assert!(!res.is_empty(), "No solution possible");
+
+   res
+}
+
+// Constrain the known filled/blank list. If all possible solutions
+// agree on a cell, it becomes known filled/blank. This should be
+// a monotonic increase in the known values, with no clashes.
+fn constrain_known(
+    poss: &[u64],
+    n: usize,
+    known_filled: u64,
+    known_blank: u64
+) -> (u64, u64) {
+    // Made complex by handling n == 64.
+    let initial_mask = 1u64.checked_shl(n as u32).map(|x| x - 1).unwrap_or(!0);
+
+    let new_known_filled: u64 = poss
+        .iter()
+        .fold(initial_mask, |acc, x| acc & x);
+
+    let new_known_blank: u64 = poss
+        .iter()
+        .fold(initial_mask, |acc, x| acc & !x);
+
+    assert!(known_filled & new_known_filled == known_filled &&
+            known_blank & new_known_blank == known_blank &&
+            new_known_filled & new_known_blank == 0,
+            "Internal error");
+
+    (new_known_filled, new_known_blank)
+}
 
 #[derive(Debug)]
 struct Solver {
@@ -471,6 +517,60 @@ mod tests {
     }
 
     // Solver tests
+
+    #[test]
+    fn test_constrain_poss_filled() {
+        // Check constraining a block of 2 in 5, where the middle bit
+        // must be set.
+        let poss = constrain_poss(&expand(&vec![2], 5), 0b00100, 0);
+        assert!(is_equiv(&poss, 5, &vec![".XX..", "..XX."]));
+    }
+
+    #[test]
+    fn test_constrain_poss_blank() {
+        // Check constraining a block of 2 in 5, where the middle bit
+        // must *not* be set.
+        let poss = constrain_poss(&expand(&vec![2], 5), 0, 0b00100);
+        assert!(is_equiv(&poss, 5, &vec!["XX...", "...XX"]));
+    }
+
+    #[test]
+    fn test_constrain_poss_filled_and_blank() {
+        // Check constraining a block of 2 in 5, where the middle bit
+        // must be set, and the next must not.
+        let poss = constrain_poss(&expand(&vec![2], 5), 0b00100, 0b00010);
+        assert!(is_equiv(&poss, 5, &vec![".XX.."]));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_constrain_poss_impossible() {
+        // Check constraining a block of 2 in 5, where 4 bits must not
+        // be set - impossible.
+        let _poss = constrain_poss(&expand(&vec![2], 5), 0, 0b01111);
+    }
+
+    #[test]
+    fn test_constrain_known_success1() {
+        // 3 in a row must involve the middle bit.
+        let poss = expand(&vec![3], 5);
+        assert_eq!(constrain_known(&poss, 5, 0b00100, 0), (0b00100, 0));
+    }
+
+    #[test]
+    fn test_constrain_known_success2() {
+        // Two blocks of 2 in 5 cells has a unique solution.
+        let poss = expand(&vec![2, 2], 5);
+        assert_eq!(constrain_known(&poss, 5, 0, 0), (0b11011, 0b00100));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_constrain_known_failure() {
+        // Not monotonic - left bit isn't known filled.
+        let poss = expand(&vec![3], 5);
+        let _known = constrain_known(&poss, 5, 0b10000, 0);
+    }
 
     #[test]
     fn test_solver_from_input() {
