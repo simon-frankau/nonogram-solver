@@ -142,8 +142,8 @@ impl FromStr for Input {
 // n is the number of bits actually being used.
 fn bitmap_to_string(bitmap: u64, n: usize) -> String {
     let mut acc = String::new();
-    for i in 1..=n {
-        acc.push(if (bitmap >> (n - i)) & 1 != 0 { 'X' } else { '.' });
+    for i in (0..n).rev() {
+        acc.push(if (bitmap >> i) & 1 != 0 { 'X' } else { '.' });
     }
     acc
 }
@@ -269,7 +269,7 @@ fn constrain_known(
     (new_known_filled, new_known_blank)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Solver {
     width: usize,
     height: usize,
@@ -341,6 +341,66 @@ impl Solver {
             known_blanks: new_blanks,
             ..*self
         }
+    }
+
+    fn transpose(&self) -> Solver {
+        fn transpose_bitvec(width: usize, rows: &[u64]) -> Vec<u64> {
+            let mut v = Vec::new();
+            for col_num in (0..width).rev() {
+                let mut col: u64 = 0;
+                for row in rows.iter() {
+                    col <<= 1;
+                    col |= (row >> col_num) & 1;
+                }
+                v.push(col);
+            }
+            v
+        }
+
+        Solver {
+            width: self.height,
+            height: self.width,
+            poss_rows: self.poss_cols.clone(),
+            poss_cols: self.poss_rows.clone(),
+            // The solution so far. A bitmap per row, with bit set if that
+            // cell is known filled or blank.
+            known_filled: transpose_bitvec(self.width, &self.known_filled),
+            known_blanks: transpose_bitvec(self.width, &self.known_blanks),
+        }
+    }
+
+    // Apply constraints vertically
+    fn constrain_v(&self) -> Solver {
+        self.transpose().constrain_h().transpose()
+    }
+
+    // Perform a constraining step
+    fn constrain(&self) -> Solver {
+        self.constrain_h().constrain_v()
+    }
+
+    // And find a unique solution by iteratively constraining until
+    // a solution is found. I don't thinks we're guaranteed to find a
+    // solution if it exists, but I have yet to find a counterexample.
+    fn solve_constraints(&self) -> Solver {
+        let mut solver: Solver = (*self).clone();
+
+        // Do an initial pass, since it might not reduce the possibility
+        // sets (which we check for progress), but might fill in a few
+        // initial known entries.
+        solver = solver.constrain();
+        let mut last_size= solver.size();
+
+        while last_size != 0 {
+            solver = solver.constrain();
+            let size = solver.size();
+            if last_size == size && size != 0 {
+                panic!("Failed to converge on solution, stuck at:\n\n{}",
+                       self);
+            }
+            last_size = size;
+        }
+        solver
     }
 }
 
@@ -716,4 +776,172 @@ mod tests {
         // Already a unique solution.
         assert_eq!(solver.size(), 0);
     }
+
+    #[test]
+    fn test_transpose() {
+        let input = "5 3 \n --
+                     1 \n \n 5 \n --
+                     1 1 \n 1 \n 1 \n 1 \n 1".parse::<Input>().unwrap();
+        // Build a solver and fill in some known_XXX constraints.
+        let solver = Solver::from_input(&input);
+        let solver_before = solver.constrain_h();
+
+        let solver_after = solver_before.transpose();
+
+        assert_eq!(solver_after.width, solver_before.height);
+        assert_eq!(solver_after.height, solver_before.width);
+        assert_eq!(solver_after.poss_rows, solver_before.poss_cols);
+        assert_eq!(solver_after.poss_cols, solver_before.poss_rows);
+
+        // Check pre-transpose for paranoia.
+        assert_eq!(solver_before.known_filled,
+                   vec![0b00000, 0b00000, 0b11111]);
+        assert_eq!(solver_before.known_blanks,
+                   vec![0b00000, 0b11111, 0b00000]);
+
+        assert_eq!(solver_after.known_filled,
+                   vec![0b001, 0b001, 0b001, 0b001, 0b001]);
+        assert_eq!(solver_after.known_blanks,
+                   vec![0b010, 0b010, 0b010, 0b010, 0b010]);
+    }
+
+
+    #[test]
+    fn test_solve_tiny() {
+        let input = "2 2
+                     --
+                     2
+
+                     --
+                     1
+                     1
+                     ".parse::<Input>().unwrap();
+        let solver = Solver::from_input(&input).solve_constraints();
+        assert_eq!(solver.to_string(),
+                  "\
+XX
+..
+");
+    }
+
+    #[test]
+    fn test_solve_small() {
+        let input = "6 6
+                     --
+
+                     1
+
+                     2
+                     2
+
+                     --
+                     1
+
+                     2
+                     2
+
+
+                     ".parse::<Input>().unwrap();
+        let solver = Solver::from_input(&input).solve_constraints();
+        assert_eq!(solver.to_string(),
+                  "\
+......
+X.....
+......
+..XX..
+..XX..
+......
+");
+    }
+
+    #[test]
+    fn test_solve_large() {
+        // Full 64x64 might hit some corner cases.
+        let input = "64 64
+                     --
+                     1
+                     \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n
+                     \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n
+                     \n\n\n\n\n\n\n\n
+                     2
+                     2
+                     --
+                     1
+                     \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n
+                     \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n
+                     \n\n\n\n\n\n\n\n
+                     2
+                     2
+                     ".parse::<Input>().unwrap();
+        let solver = Solver::from_input(&input).solve_constraints();
+        println!("{}", solver);
+        assert_eq!(solver.to_string(),
+                  "\
+X...............................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+................................................................
+..............................................................XX
+..............................................................XX
+");
+    }
+
 }
