@@ -5,6 +5,7 @@
 
 use std::fmt;
 use std::fmt::Write;
+use std::mem;
 use std::str::FromStr;
 
 #[cfg(test)]
@@ -223,22 +224,34 @@ fn expand(counts: &[usize], n: usize) -> Vec<u64> {
 // Solving logic
 //
 
+#[derive(Debug, Eq, PartialEq)]
+enum ConstraintSolverFailure {
+    // There's some kind of contradiction, meaning no solution is possible.
+    NoSolutions,
+    // We can't make further progress. Either this is a tricky case the
+    // constraint solved can't handle, or there are multiple solutions,
+    // meaning we can't find a unique path forwards.
+    Stuck,
+}
+
 // Constrain the possibilities list, based on the known filled and blank
 // cells. Any solution that clashes with known cells is discarded.
 fn constrain_poss(
     poss: &[u64],
     known_filled: u64,
     known_blank: u64
-) -> Vec<u64> {
+) -> Result<Vec<u64>, ConstraintSolverFailure> {
    let res: Vec<u64> = poss
        .iter()
        .filter(|&x| x & known_blank == 0 && !x & known_filled == 0)
        .cloned()
        .collect();
 
-   assert!(!res.is_empty(), "No solution possible");
-
-   res
+   if res.is_empty() {
+       Err(ConstraintSolverFailure::NoSolutions)
+   } else {
+       Ok(res)
+   }
 }
 
 // Constrain the known filled/blank list. If all possible solutions
@@ -250,6 +263,8 @@ fn constrain_known(
     known_filled: u64,
     known_blank: u64
 ) -> (u64, u64) {
+    // Build a mask containing only the bits we care about.
+    //
     // Made complex by handling n == 64.
     let initial_mask = 1u64.checked_shl(n as u32).map(|x| x - 1).unwrap_or(!0);
 
@@ -261,6 +276,11 @@ fn constrain_known(
         .iter()
         .fold(initial_mask, |acc, x| acc & !x);
 
+    // We only shrink the set of possibilities for a row/col, so we
+    // should only ever grow the set of known values. Furthermore,
+    // it should be impossible for all the possibilities to have
+    // the same bit set and unset (unless the possibility set is
+    // empty, which should alredy be caught in constrain_poss).
     assert!(known_filled & new_known_filled == known_filled &&
             known_blank & new_known_blank == known_blank &&
             new_known_filled & new_known_blank == 0,
@@ -308,16 +328,16 @@ impl Solver {
     }
 
     // Apply constraints in the horizontal direction
-    fn constrain_h(&self) -> Solver {
-        let new_poss_rows = self.poss_rows
+    fn constrain_h(&mut self) -> Result<(), ConstraintSolverFailure> {
+        self.poss_rows = self.poss_rows
             .iter()
             .zip(self.known_filled.iter())
             .zip(self.known_blanks.iter())
             .map(|((row, &filled), &blank)|
                     constrain_poss(&row, filled, blank))
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, ConstraintSolverFailure>>()?;
 
-        let new_filled_and_blanks = new_poss_rows
+        let new_filled_and_blanks = self.poss_rows
             .iter()
             .zip(self.known_filled.iter())
             .zip(self.known_blanks.iter())
@@ -325,25 +345,19 @@ impl Solver {
                     constrain_known(&row, self.width, filled, blank))
             .collect::<Vec<_>>();
 
-        let new_filled = new_filled_and_blanks
+        self.known_filled = new_filled_and_blanks
             .iter()
             .map(|(filled, _)| *filled)
             .collect::<Vec<_>>();
-        let new_blanks = new_filled_and_blanks
+        self.known_blanks = new_filled_and_blanks
             .iter()
             .map(|(_, blank)| *blank)
             .collect::<Vec<_>>();
 
-        Solver {
-            poss_rows: new_poss_rows,
-            poss_cols: self.poss_cols.clone(),
-            known_filled: new_filled,
-            known_blanks: new_blanks,
-            ..*self
-        }
+        Ok(())
     }
 
-    fn transpose(&self) -> Solver {
+    fn transpose(&mut self) {
         fn transpose_bitvec(width: usize, rows: &[u64]) -> Vec<u64> {
             let mut v = Vec::new();
             for col_num in (0..width).rev() {
@@ -357,50 +371,48 @@ impl Solver {
             v
         }
 
-        Solver {
-            width: self.height,
-            height: self.width,
-            poss_rows: self.poss_cols.clone(),
-            poss_cols: self.poss_rows.clone(),
-            // The solution so far. A bitmap per row, with bit set if that
-            // cell is known filled or blank.
-            known_filled: transpose_bitvec(self.width, &self.known_filled),
-            known_blanks: transpose_bitvec(self.width, &self.known_blanks),
-        }
+        self.known_filled = transpose_bitvec(self.width, &self.known_filled);
+        self.known_blanks = transpose_bitvec(self.width, &self.known_blanks);
+
+        mem::swap(&mut self.width, &mut self.height);
+        mem::swap(&mut self.poss_rows, &mut self.poss_cols);
     }
 
     // Apply constraints vertically
-    fn constrain_v(&self) -> Solver {
-        self.transpose().constrain_h().transpose()
+    fn constrain_v(&mut self) -> Result<(), ConstraintSolverFailure> {
+        self.transpose();
+        let res = self.constrain_h();
+        self.transpose();
+        res
     }
 
     // Perform a constraining step
-    fn constrain(&self) -> Solver {
-        self.constrain_h().constrain_v()
+    fn constrain(&mut self) -> Result<(), ConstraintSolverFailure> {
+        self.constrain_h()?;
+        self.constrain_v()?;
+        Ok(())
     }
 
     // And find a unique solution by iteratively constraining until
     // a solution is found. I don't thinks we're guaranteed to find a
     // solution if it exists, but I have yet to find a counterexample.
-    fn solve_constraints(&self) -> Solver {
-        let mut solver: Solver = (*self).clone();
-
+    fn solve_constraints(&mut self) -> Result<(), ConstraintSolverFailure> {
         // Do an initial pass, since it might not reduce the possibility
         // sets (which we check for progress), but might fill in a few
         // initial known entries.
-        solver = solver.constrain();
-        let mut last_size= solver.size();
+        self.constrain()?;
+        let mut last_size = self.size();
 
         while last_size != 0 {
-            solver = solver.constrain();
-            let size = solver.size();
+            self.constrain()?;
+            let size = self.size();
             if last_size == size && size != 0 {
-                panic!("Failed to converge on solution, stuck at:\n\n{}",
-                       self);
+                return Err(ConstraintSolverFailure::Stuck);
             }
             last_size = size;
         }
-        solver
+
+        Ok(())
     }
 }
 
@@ -640,7 +652,7 @@ mod tests {
     fn test_constrain_poss_filled() {
         // Check constraining a block of 2 in 5, where the middle bit
         // must be set.
-        let poss = constrain_poss(&expand(&vec![2], 5), 0b00100, 0);
+        let poss = constrain_poss(&expand(&vec![2], 5), 0b00100, 0).unwrap();
         assert!(is_equiv(&poss, 5, &vec![".XX..", "..XX."]));
     }
 
@@ -648,7 +660,7 @@ mod tests {
     fn test_constrain_poss_blank() {
         // Check constraining a block of 2 in 5, where the middle bit
         // must *not* be set.
-        let poss = constrain_poss(&expand(&vec![2], 5), 0, 0b00100);
+        let poss = constrain_poss(&expand(&vec![2], 5), 0, 0b00100).unwrap();
         assert!(is_equiv(&poss, 5, &vec!["XX...", "...XX"]));
     }
 
@@ -656,16 +668,17 @@ mod tests {
     fn test_constrain_poss_filled_and_blank() {
         // Check constraining a block of 2 in 5, where the middle bit
         // must be set, and the next must not.
-        let poss = constrain_poss(&expand(&vec![2], 5), 0b00100, 0b00010);
+        let poss = constrain_poss(&expand(&vec![2], 5), 0b00100, 0b00010)
+            .unwrap();
         assert!(is_equiv(&poss, 5, &vec![".XX.."]));
     }
 
     #[test]
-    #[should_panic]
     fn test_constrain_poss_impossible() {
         // Check constraining a block of 2 in 5, where 4 bits must not
         // be set - impossible.
-        let _poss = constrain_poss(&expand(&vec![2], 5), 0, 0b01111);
+        assert_eq!(constrain_poss(&expand(&vec![2], 5), 0, 0b01111),
+                   Err(ConstraintSolverFailure::NoSolutions));
     }
 
     #[test]
@@ -778,15 +791,16 @@ mod tests {
     }
 
     #[test]
-    fn test_transpose() {
+    fn test_transpose() -> Result<(), ConstraintSolverFailure> {
         let input = "5 3 \n --
                      1 \n \n 5 \n --
                      1 1 \n 1 \n 1 \n 1 \n 1".parse::<Input>().unwrap();
         // Build a solver and fill in some known_XXX constraints.
-        let solver = Solver::from_input(&input);
-        let solver_before = solver.constrain_h();
+        let mut solver_before = Solver::from_input(&input);
+        solver_before.constrain_h()?;
 
-        let solver_after = solver_before.transpose();
+        let mut solver_after = solver_before.clone();
+        solver_after.transpose();
 
         assert_eq!(solver_after.width, solver_before.height);
         assert_eq!(solver_after.height, solver_before.width);
@@ -803,11 +817,13 @@ mod tests {
                    vec![0b001, 0b001, 0b001, 0b001, 0b001]);
         assert_eq!(solver_after.known_blanks,
                    vec![0b010, 0b010, 0b010, 0b010, 0b010]);
+
+        Ok(())
     }
 
 
     #[test]
-    fn test_solve_tiny() {
+    fn test_solve_tiny() -> Result<(), ConstraintSolverFailure> {
         let input = "2 2
                      --
                      2
@@ -816,16 +832,19 @@ mod tests {
                      1
                      1
                      ".parse::<Input>().unwrap();
-        let solver = Solver::from_input(&input).solve_constraints();
+        let mut solver = Solver::from_input(&input);
+        solver.solve_constraints()?;
         assert_eq!(solver.to_string(),
                   "\
 XX
 ..
 ");
+
+        Ok(())
     }
 
     #[test]
-    fn test_solve_small() {
+    fn test_solve_small() -> Result<(), ConstraintSolverFailure> {
         let input = "6 6
                      --
 
@@ -842,7 +861,8 @@ XX
 
 
                      ".parse::<Input>().unwrap();
-        let solver = Solver::from_input(&input).solve_constraints();
+        let mut solver = Solver::from_input(&input);
+        solver.solve_constraints()?;
         assert_eq!(solver.to_string(),
                   "\
 ......
@@ -852,10 +872,12 @@ X.....
 ..XX..
 ......
 ");
+
+        Ok(())
     }
 
     #[test]
-    fn test_solve_large() {
+    fn test_solve_large() -> Result<(), ConstraintSolverFailure> {
         // Full 64x64 might hit some corner cases.
         let input = "64 64
                      --
@@ -873,8 +895,8 @@ X.....
                      2
                      2
                      ".parse::<Input>().unwrap();
-        let solver = Solver::from_input(&input).solve_constraints();
-        println!("{}", solver);
+        let mut solver = Solver::from_input(&input);
+        solver.solve_constraints()?;
         assert_eq!(solver.to_string(),
                   "\
 X...............................................................
@@ -942,6 +964,8 @@ X...............................................................
 ..............................................................XX
 ..............................................................XX
 ");
+
+        Ok(())
     }
 
 }
