@@ -3,6 +3,8 @@
 // Copyright 2021 Simon Frankau
 //
 
+use std::io;
+use std::io::Read;
 use std::fmt;
 use std::fmt::Write;
 use std::mem;
@@ -141,6 +143,7 @@ impl FromStr for Input {
 // Generate a text representation of a bitmap.
 //
 // n is the number of bits actually being used.
+#[cfg(test)]
 fn bitmap_to_string(bitmap: u64, n: usize) -> String {
     let mut acc = String::new();
     for i in (0..n).rev() {
@@ -477,12 +480,21 @@ fn solve_recursive(solver: Solver) -> Vec<Solver> {
 // Main entry point
 //
 
-fn main() {
-    let n = 5;
-    let results = expand(&vec![1, 2], n);
-    for result in results.iter() {
-        println!("{}", bitmap_to_string(*result, n));
-    }
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut buffer = String::new();
+    io::stdin().read_to_string(&mut buffer)?;
+
+    let input = buffer.parse::<Input>()?;
+    let solver = Solver::from_input(&input);
+    let solutions: String = solve_recursive(solver)
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>()
+        .concat();
+
+    println!("{}", solutions);
+
+    Ok(())
 }
 
 ////////////////////////////////////////////////////////////////////////
