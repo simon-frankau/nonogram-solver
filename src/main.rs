@@ -436,6 +436,43 @@ impl fmt::Display for Solver {
     }
 }
 
+// Attempt to find all solutions, by performing a constraint-solving pass
+// and any time we get stuck, we perform a case split and recurse.
+fn solve_recursive(solver: Solver) -> Vec<Solver> {
+    fn choose_split_line(solver: &Solver) -> usize {
+        // We choose the row (ignoring columns for simplicity) with the
+        // fewest alternatives, assuming (unfoundedly) that leads to
+        // less searching.
+        solver.poss_rows
+            .iter()
+            .map(|r| r.len())
+            .zip(0..)
+            .filter(|(l, _)| *l != 1)
+            .min()
+            .unwrap()
+            .1
+    }
+
+    fn solve_recursive_aux(mut solver: Solver, acc: &mut Vec<Solver>) {
+        match solver.solve_constraints() {
+            Ok(()) => acc.push(solver),
+            Err(ConstraintSolverFailure::NoSolutions) => return,
+            Err(ConstraintSolverFailure::Stuck) => {
+                let i = choose_split_line(&solver);
+                for poss in solver.poss_rows[i].iter() {
+                    let mut rec_solver = solver.clone();
+                    rec_solver.poss_rows[i] = vec![*poss];
+                    solve_recursive_aux(rec_solver, acc)
+                }
+            }
+        }
+    }
+
+    let mut v = Vec::new();
+    solve_recursive_aux(solver.clone(), &mut v);
+    v
+}
+
 ////////////////////////////////////////////////////////////////////////
 // Main entry point
 //
@@ -966,6 +1003,150 @@ X...............................................................
 ");
 
         Ok(())
+    }
+
+    #[test]
+    fn test_solve_ambiguity_fail() {
+        let input = "3 3
+                     --
+                     1
+
+                     1
+                     --
+                     1
+
+                     1
+                     ".parse::<Input>().unwrap();
+        let mut solver = Solver::from_input(&input);
+        assert_eq!(solver.solve_constraints(),
+                   Err(ConstraintSolverFailure::Stuck));
+    }
+
+    #[test]
+    fn test_solve_recursive() {
+        // Check the recursive solver finds multiple solutions.
+        let input = "3 3
+                     --
+                     1
+
+                     1
+                     --
+                     1
+
+                     1
+                     ".parse::<Input>().unwrap();
+        let solver = Solver::from_input(&input);
+        let found_solutions = solve_recursive(solver)
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<HashSet<String>>();
+
+        let known_solutions: HashSet<String> = ["\
+X..
+...
+..X
+", "\
+..X
+...
+X..
+"].iter().map(|s| s.to_string()).collect();
+
+        assert_eq!(found_solutions, known_solutions);
+    }
+
+    #[test]
+    fn test_solve_recursive_fail() {
+        // Check the recursive solver copes with no solutions.
+        let input = "3 3
+                     --
+                     1
+                     1
+                     1
+                     --
+                     1
+
+                     1
+                     ".parse::<Input>().unwrap();
+        let solver = Solver::from_input(&input);
+        let found_solutions = solve_recursive(solver)
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<HashSet<String>>();
+
+        assert_eq!(found_solutions.len(), 0);
+    }
+
+    #[test]
+    fn test_solve_stupid_corner_case() {
+        // Silly corner case: Size zero.
+        let input = "0 0
+                     --
+                     --
+                     ".parse::<Input>().unwrap();
+        let solver = Solver::from_input(&input);
+        let found_solutions = solve_recursive(solver)
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<HashSet<String>>();
+
+        let known_solutions = [""]
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<HashSet<String>>();
+
+        assert_eq!(found_solutions, known_solutions);
+    }
+
+    #[test]
+    fn test_solve_stupid_corner_case_vertical() {
+        // And while I'm at it, zero size in one dimension...
+        let input = "0 5
+                     --
+
+
+
+
+
+                     --
+                     ".parse::<Input>().unwrap();
+        let solver = Solver::from_input(&input);
+        let found_solutions = solve_recursive(solver)
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<HashSet<String>>();
+
+        let known_solutions = ["\n\n\n\n\n"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<HashSet<String>>();
+
+        assert_eq!(found_solutions, known_solutions);
+    }
+
+    #[test]
+    fn test_solve_stupid_corner_case_horizontal() {
+        // And while I'm at it, zero size in one dimension...
+        let input = "5 0
+                     --
+                     --
+
+
+
+
+
+                     ".parse::<Input>().unwrap();
+        let solver = Solver::from_input(&input);
+        let found_solutions = solve_recursive(solver)
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<HashSet<String>>();
+
+        let known_solutions = [""]
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<HashSet<String>>();
+
+        assert_eq!(found_solutions, known_solutions);
     }
 
 }
