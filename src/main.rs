@@ -17,7 +17,7 @@ use std::collections::HashSet;
 // Input parsing
 //
 
-const PARSE_ERR_SECTIONS: &str = "Expected three sections separate by lines containing '--'.";
+const PARSE_ERR_SECTIONS: &str = "Expected three sections separated by lines containing '--'.";
 
 const PARSE_ERR_SEC1: &str = "Section 1 should be a single line containing 2 numbers.";
 
