@@ -133,10 +133,7 @@ impl FromStr for Input {
             .map(|&line| parse_line(line))
             .collect::<Result<Vec<Vec<usize>>, String>>()?;
 
-        Ok(Input {
-            rows: rows,
-            cols: cols,
-        })
+        Ok(Input { rows, cols })
     }
 }
 
@@ -450,7 +447,7 @@ fn solve_recursive(solver: Solver) -> Vec<Solver> {
     fn solve_recursive_aux(mut solver: Solver, acc: &mut Vec<Solver>) {
         match solver.solve_constraints() {
             Ok(()) => acc.push(solver),
-            Err(ConstraintSolverFailure::NoSolutions) => return,
+            Err(ConstraintSolverFailure::NoSolutions) => {}
             Err(ConstraintSolverFailure::Stuck) => {
                 let i = choose_split_line(&solver);
                 for poss in solver.poss_rows[i].iter() {
@@ -463,7 +460,7 @@ fn solve_recursive(solver: Solver) -> Vec<Solver> {
     }
 
     let mut v = Vec::new();
-    solve_recursive_aux(solver.clone(), &mut v);
+    solve_recursive_aux(solver, &mut v);
     v
 }
 
