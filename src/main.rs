@@ -3,10 +3,10 @@
 // Copyright 2021 Simon Frankau
 //
 
-use std::io;
-use std::io::Read;
 use std::fmt;
 use std::fmt::Write;
+use std::io;
+use std::io::Read;
 use std::mem;
 use std::str::FromStr;
 
@@ -17,11 +17,9 @@ use std::collections::HashSet;
 // Input parsing
 //
 
-const PARSE_ERR_SECTIONS: &str =
-    "Expected three sections separate by lines containing '--'.";
+const PARSE_ERR_SECTIONS: &str = "Expected three sections separate by lines containing '--'.";
 
-const PARSE_ERR_SEC1: &str =
-    "Section 1 should be a single line containing 2 numbers.";
+const PARSE_ERR_SEC1: &str = "Section 1 should be a single line containing 2 numbers.";
 
 #[derive(Debug, Eq, PartialEq)]
 struct Input {
@@ -59,12 +57,13 @@ impl FromStr for Input {
 
         let section_markers = lines
             .iter()
-            .filter_map(|&(s, line_num)|
+            .filter_map(|&(s, line_num)| {
                 if s.trim() == "--" {
                     Some(line_num)
                 } else {
                     None
-                })
+                }
+            })
             .collect::<Vec<usize>>();
 
         if section_markers.len() != 2 {
@@ -75,12 +74,12 @@ impl FromStr for Input {
 
         fn parse_line(line: (&str, usize)) -> Result<Vec<usize>, String> {
             let (line, line_num) = line;
-            line
-                .trim()
+            line.trim()
                 .split_whitespace()
-                .map(|xs| xs
-                    .parse::<usize>()
-                    .map_err(|e| format!("Line {}: {}", line_num, e)))
+                .map(|xs| {
+                    xs.parse::<usize>()
+                        .map_err(|e| format!("Line {}: {}", line_num, e))
+                })
                 .collect::<Result<Vec<_>, String>>()
         }
 
@@ -98,13 +97,14 @@ impl FromStr for Input {
         };
 
         // Parse section 2:
-        let section2 = &lines[section_markers[0]..section_markers[1]-1];
+        let section2 = &lines[section_markers[0]..section_markers[1] - 1];
         if section2.len() != height {
             return Err(format!(
                 "Line {}: Expected {} rows, found {} in section 2",
                 section_markers[0] + 1,
                 height,
-                section2.len()));
+                section2.len()
+            ));
         }
         let rows = section2
             .iter()
@@ -125,14 +125,18 @@ impl FromStr for Input {
                 "Line {}: Expected {} columns, found {} in section 3",
                 section_markers[1] + 1,
                 width,
-                section3.len()));
+                section3.len()
+            ));
         }
         let cols = section3
             .iter()
             .map(|&line| parse_line(line))
             .collect::<Result<Vec<Vec<usize>>, String>>()?;
 
-        Ok(Input { rows: rows, cols: cols })
+        Ok(Input {
+            rows: rows,
+            cols: cols,
+        })
     }
 }
 
@@ -182,12 +186,7 @@ fn expand(counts: &[usize], n: usize) -> Vec<u64> {
     // Auxiliary function used for recursion - takes expansion so far,
     // extends it with remaining counts/n, and pushes results into the
     // accumulator.
-    fn expand_aux(
-        counts: &[usize],
-        num_blanks: usize,
-        so_far: u64,
-        accumulator: &mut Vec<u64>,
-    ) {
+    fn expand_aux(counts: &[usize], num_blanks: usize, so_far: u64, accumulator: &mut Vec<u64>) {
         // Base case.
         if counts.is_empty() {
             let curr = so_far << num_blanks;
@@ -242,52 +241,45 @@ enum ConstraintSolverFailure {
 fn constrain_poss(
     poss: &[u64],
     known_filled: u64,
-    known_blank: u64
+    known_blank: u64,
 ) -> Result<Vec<u64>, ConstraintSolverFailure> {
-   let res: Vec<u64> = poss
-       .iter()
-       .filter(|&x| x & known_blank == 0 && !x & known_filled == 0)
-       .cloned()
-       .collect();
+    let res: Vec<u64> = poss
+        .iter()
+        .filter(|&x| x & known_blank == 0 && !x & known_filled == 0)
+        .cloned()
+        .collect();
 
-   if res.is_empty() {
-       Err(ConstraintSolverFailure::NoSolutions)
-   } else {
-       Ok(res)
-   }
+    if res.is_empty() {
+        Err(ConstraintSolverFailure::NoSolutions)
+    } else {
+        Ok(res)
+    }
 }
 
 // Constrain the known filled/blank list. If all possible solutions
 // agree on a cell, it becomes known filled/blank. This should be
 // a monotonic increase in the known values, with no clashes.
-fn constrain_known(
-    poss: &[u64],
-    n: usize,
-    known_filled: u64,
-    known_blank: u64
-) -> (u64, u64) {
+fn constrain_known(poss: &[u64], n: usize, known_filled: u64, known_blank: u64) -> (u64, u64) {
     // Build a mask containing only the bits we care about.
     //
     // Made complex by handling n == 64.
     let initial_mask = 1u64.checked_shl(n as u32).map(|x| x - 1).unwrap_or(!0);
 
-    let new_known_filled: u64 = poss
-        .iter()
-        .fold(initial_mask, |acc, x| acc & x);
+    let new_known_filled: u64 = poss.iter().fold(initial_mask, |acc, x| acc & x);
 
-    let new_known_blank: u64 = poss
-        .iter()
-        .fold(initial_mask, |acc, x| acc & !x);
+    let new_known_blank: u64 = poss.iter().fold(initial_mask, |acc, x| acc & !x);
 
     // We only shrink the set of possibilities for a row/col, so we
     // should only ever grow the set of known values. Furthermore,
     // it should be impossible for all the possibilities to have
     // the same bit set and unset (unless the possibility set is
     // empty, which should alredy be caught in constrain_poss).
-    assert!(known_filled & new_known_filled == known_filled &&
-            known_blank & new_known_blank == known_blank &&
-            new_known_filled & new_known_blank == 0,
-            "Internal error");
+    assert!(
+        known_filled & new_known_filled == known_filled
+            && known_blank & new_known_blank == known_blank
+            && new_known_filled & new_known_blank == 0,
+        "Internal error"
+    );
 
     (new_known_filled, new_known_blank)
 }
@@ -332,20 +324,20 @@ impl Solver {
 
     // Apply constraints in the horizontal direction
     fn constrain_h(&mut self) -> Result<(), ConstraintSolverFailure> {
-        self.poss_rows = self.poss_rows
+        self.poss_rows = self
+            .poss_rows
             .iter()
             .zip(self.known_filled.iter())
             .zip(self.known_blanks.iter())
-            .map(|((row, &filled), &blank)|
-                    constrain_poss(&row, filled, blank))
+            .map(|((row, &filled), &blank)| constrain_poss(&row, filled, blank))
             .collect::<Result<Vec<_>, ConstraintSolverFailure>>()?;
 
-        let new_filled_and_blanks = self.poss_rows
+        let new_filled_and_blanks = self
+            .poss_rows
             .iter()
             .zip(self.known_filled.iter())
             .zip(self.known_blanks.iter())
-            .map(|((row, &filled), &blank)|
-                    constrain_known(&row, self.width, filled, blank))
+            .map(|((row, &filled), &blank)| constrain_known(&row, self.width, filled, blank))
             .collect::<Vec<_>>();
 
         self.known_filled = new_filled_and_blanks
@@ -421,9 +413,7 @@ impl Solver {
 
 impl fmt::Display for Solver {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (filled, blank) in self.known_filled
-            .iter()
-            .zip(self.known_blanks.iter()) {
+        for (filled, blank) in self.known_filled.iter().zip(self.known_blanks.iter()) {
             for i in (0..self.width).rev() {
                 let c = match ((filled >> i) & 1, (blank >> i) & 1) {
                     (0, 0) => '?',
@@ -446,7 +436,8 @@ fn solve_recursive(solver: Solver) -> Vec<Solver> {
         // We choose the row (ignoring columns for simplicity) with the
         // fewest alternatives, assuming (unfoundedly) that leads to
         // less searching.
-        solver.poss_rows
+        solver
+            .poss_rows
             .iter()
             .map(|r| r.len())
             .zip(0..)
@@ -505,80 +496,103 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 mod tests {
     use super::*;
 
-// Parsing tests
+    // Parsing tests
 
     #[test]
     fn test_parse_sections_incorrect() {
-        assert_eq!("OOPS".parse::<Input>(),
-                   Err(PARSE_ERR_SECTIONS.to_string()));
-        assert_eq!("OOPS\n--\nSAD\n--\nToo many\n--\n???".parse::<Input>(),
-                   Err(PARSE_ERR_SECTIONS.to_string()));
+        assert_eq!("OOPS".parse::<Input>(), Err(PARSE_ERR_SECTIONS.to_string()));
+        assert_eq!(
+            "OOPS\n--\nSAD\n--\nToo many\n--\n???".parse::<Input>(),
+            Err(PARSE_ERR_SECTIONS.to_string())
+        );
     }
 
     #[test]
     fn test_parse_section1_bad_line_count() {
-        assert_eq!("1 2\n3 4\n--\n--\n".parse::<Input>(),
-                   Err(format!("Line 2: {}", PARSE_ERR_SEC1)));
+        assert_eq!(
+            "1 2\n3 4\n--\n--\n".parse::<Input>(),
+            Err(format!("Line 2: {}", PARSE_ERR_SEC1))
+        );
     }
 
     #[test]
     fn test_parse_section1_bad_element_count() {
-        assert_eq!("1 2 3\n--\n--\n".parse::<Input>(),
-                   Err(format!("Line 1: {}", PARSE_ERR_SEC1)));
+        assert_eq!(
+            "1 2 3\n--\n--\n".parse::<Input>(),
+            Err(format!("Line 1: {}", PARSE_ERR_SEC1))
+        );
     }
 
     #[test]
     fn test_parse_section1_bad_element() {
-        assert_eq!("1 cheese 3\n--\n--\n".parse::<Input>(),
-                   Err("Line 1: invalid digit found in string".to_string()));
+        assert_eq!(
+            "1 cheese 3\n--\n--\n".parse::<Input>(),
+            Err("Line 1: invalid digit found in string".to_string())
+        );
     }
 
     #[test]
     fn test_parse_section2_bad_line_count() {
-        assert_eq!("1 3\n--\n7\n42 13\n--\n".parse::<Input>(),
-                   Err("Line 3: Expected 3 rows, found 2 in section 2".to_string()));
+        assert_eq!(
+            "1 3\n--\n7\n42 13\n--\n".parse::<Input>(),
+            Err("Line 3: Expected 3 rows, found 2 in section 2".to_string())
+        );
     }
 
     #[test]
     fn test_parse_section2_bad_element() {
-        assert_eq!("1 2\n--\n7\n42 what? 13\n--\n".parse::<Input>(),
-                   Err("Line 4: invalid digit found in string".to_string()));
+        assert_eq!(
+            "1 2\n--\n7\n42 what? 13\n--\n".parse::<Input>(),
+            Err("Line 4: invalid digit found in string".to_string())
+        );
     }
 
     #[test]
     fn test_parse_section3_bad_line_count() {
-        assert_eq!("4 2\n--\n7\n42 13\n--\n17".parse::<Input>(),
-                   Err("Line 6: Expected 4 columns, found 1 in section 3".to_string()));
+        assert_eq!(
+            "4 2\n--\n7\n42 13\n--\n17".parse::<Input>(),
+            Err("Line 6: Expected 4 columns, found 1 in section 3".to_string())
+        );
     }
 
     #[test]
     fn test_parse_section3_bad_element() {
-        assert_eq!("1 2\n--\n7\n42 13\n--\n0x17".parse::<Input>(),
-                   Err("Line 6: invalid digit found in string".to_string()));
+        assert_eq!(
+            "1 2\n--\n7\n42 13\n--\n0x17".parse::<Input>(),
+            Err("Line 6: invalid digit found in string".to_string())
+        );
     }
 
     #[test]
     fn test_parse_success() {
-        assert_eq!("1 2\n--\n7\n42 13\n--\n17".parse::<Input>(),
-                   Ok(Input {
-                       rows: vec![vec![7], vec![42, 13]],
-                       cols: vec![vec![17]],
-                   }));
+        assert_eq!(
+            "1 2\n--\n7\n42 13\n--\n17".parse::<Input>(),
+            Ok(Input {
+                rows: vec![vec![7], vec![42, 13]],
+                cols: vec![vec![17]],
+            })
+        );
     }
 
     #[test]
     fn test_parse_trailing_newline() {
-        assert_eq!("1 2\n--\n7\n42 13\n--\n17".parse::<Input>().unwrap(),
-                   "1 2\n--\n7\n42 13\n--\n17\n".parse::<Input>().unwrap())
+        assert_eq!(
+            "1 2\n--\n7\n42 13\n--\n17".parse::<Input>().unwrap(),
+            "1 2\n--\n7\n42 13\n--\n17\n".parse::<Input>().unwrap()
+        )
     }
 
     #[test]
     fn test_parse_extra_whitespace() {
-        assert_eq!("1 2\n--\n7\n42 13\n--\n17".parse::<Input>().unwrap(),
-                   " 1  2\n -- \n7\n42\t13\n--\n17 \n".parse::<Input>().unwrap())
+        assert_eq!(
+            "1 2\n--\n7\n42 13\n--\n17".parse::<Input>().unwrap(),
+            " 1  2\n -- \n7\n42\t13\n--\n17 \n"
+                .parse::<Input>()
+                .unwrap()
+        )
     }
 
-// Bitmap tests
+    // Bitmap tests
 
     #[test]
     fn test_bitmap_to_string_empty() {
@@ -609,10 +623,7 @@ mod tests {
             .map(|x| x.as_str())
             .collect::<HashSet<&str>>();
 
-        let expected_set = expected
-            .iter()
-            .cloned()
-            .collect::<HashSet<&str>>();
+        let expected_set = expected.iter().cloned().collect::<HashSet<&str>>();
 
         bitmap_set == expected_set
     }
@@ -643,46 +654,126 @@ mod tests {
         let n = 15;
         let bitmaps = expand(&vec![1, 2, 3], n);
         let expected = vec![
-            "X.XX.XXX.......", "X.XX..XXX......", "X.XX...XXX.....",
-            "X.XX....XXX....", "X.XX.....XXX...", "X.XX......XXX..",
-            "X.XX.......XXX.", "X.XX........XXX", "X..XX.XXX......",
-            "X..XX..XXX.....", "X..XX...XXX....", "X..XX....XXX...",
-            "X..XX.....XXX..", "X..XX......XXX.", "X..XX.......XXX",
-            "X...XX.XXX.....", "X...XX..XXX....", "X...XX...XXX...",
-            "X...XX....XXX..", "X...XX.....XXX.", "X...XX......XXX",
-            "X....XX.XXX....", "X....XX..XXX...", "X....XX...XXX..",
-            "X....XX....XXX.", "X....XX.....XXX", "X.....XX.XXX...",
-            "X.....XX..XXX..", "X.....XX...XXX.", "X.....XX....XXX",
-            "X......XX.XXX..", "X......XX..XXX.", "X......XX...XXX",
-            "X.......XX.XXX.", "X.......XX..XXX", "X........XX.XXX",
-            ".X.XX.XXX......", ".X.XX..XXX.....", ".X.XX...XXX....",
-            ".X.XX....XXX...", ".X.XX.....XXX..", ".X.XX......XXX.",
-            ".X.XX.......XXX", ".X..XX.XXX.....", ".X..XX..XXX....",
-            ".X..XX...XXX...", ".X..XX....XXX..", ".X..XX.....XXX.",
-            ".X..XX......XXX", ".X...XX.XXX....", ".X...XX..XXX...",
-            ".X...XX...XXX..", ".X...XX....XXX.", ".X...XX.....XXX",
-            ".X....XX.XXX...", ".X....XX..XXX..", ".X....XX...XXX.",
-            ".X....XX....XXX", ".X.....XX.XXX..", ".X.....XX..XXX.",
-            ".X.....XX...XXX", ".X......XX.XXX.", ".X......XX..XXX",
-            ".X.......XX.XXX", "..X.XX.XXX.....", "..X.XX..XXX....",
-            "..X.XX...XXX...", "..X.XX....XXX..", "..X.XX.....XXX.",
-            "..X.XX......XXX", "..X..XX.XXX....", "..X..XX..XXX...",
-            "..X..XX...XXX..", "..X..XX....XXX.", "..X..XX.....XXX",
-            "..X...XX.XXX...", "..X...XX..XXX..", "..X...XX...XXX.",
-            "..X...XX....XXX", "..X....XX.XXX..", "..X....XX..XXX.",
-            "..X....XX...XXX", "..X.....XX.XXX.", "..X.....XX..XXX",
-            "..X......XX.XXX", "...X.XX.XXX....", "...X.XX..XXX...",
-            "...X.XX...XXX..", "...X.XX....XXX.", "...X.XX.....XXX",
-            "...X..XX.XXX...", "...X..XX..XXX..", "...X..XX...XXX.",
-            "...X..XX....XXX", "...X...XX.XXX..", "...X...XX..XXX.",
-            "...X...XX...XXX", "...X....XX.XXX.", "...X....XX..XXX",
-            "...X.....XX.XXX", "....X.XX.XXX...", "....X.XX..XXX..",
-            "....X.XX...XXX.", "....X.XX....XXX", "....X..XX.XXX..",
-            "....X..XX..XXX.", "....X..XX...XXX", "....X...XX.XXX.",
-            "....X...XX..XXX", "....X....XX.XXX", ".....X.XX.XXX..",
-            ".....X.XX..XXX.", ".....X.XX...XXX", ".....X..XX.XXX.",
-            ".....X..XX..XXX", ".....X...XX.XXX", "......X.XX.XXX.",
-            "......X.XX..XXX", "......X..XX.XXX", ".......X.XX.XXX"
+            "X.XX.XXX.......",
+            "X.XX..XXX......",
+            "X.XX...XXX.....",
+            "X.XX....XXX....",
+            "X.XX.....XXX...",
+            "X.XX......XXX..",
+            "X.XX.......XXX.",
+            "X.XX........XXX",
+            "X..XX.XXX......",
+            "X..XX..XXX.....",
+            "X..XX...XXX....",
+            "X..XX....XXX...",
+            "X..XX.....XXX..",
+            "X..XX......XXX.",
+            "X..XX.......XXX",
+            "X...XX.XXX.....",
+            "X...XX..XXX....",
+            "X...XX...XXX...",
+            "X...XX....XXX..",
+            "X...XX.....XXX.",
+            "X...XX......XXX",
+            "X....XX.XXX....",
+            "X....XX..XXX...",
+            "X....XX...XXX..",
+            "X....XX....XXX.",
+            "X....XX.....XXX",
+            "X.....XX.XXX...",
+            "X.....XX..XXX..",
+            "X.....XX...XXX.",
+            "X.....XX....XXX",
+            "X......XX.XXX..",
+            "X......XX..XXX.",
+            "X......XX...XXX",
+            "X.......XX.XXX.",
+            "X.......XX..XXX",
+            "X........XX.XXX",
+            ".X.XX.XXX......",
+            ".X.XX..XXX.....",
+            ".X.XX...XXX....",
+            ".X.XX....XXX...",
+            ".X.XX.....XXX..",
+            ".X.XX......XXX.",
+            ".X.XX.......XXX",
+            ".X..XX.XXX.....",
+            ".X..XX..XXX....",
+            ".X..XX...XXX...",
+            ".X..XX....XXX..",
+            ".X..XX.....XXX.",
+            ".X..XX......XXX",
+            ".X...XX.XXX....",
+            ".X...XX..XXX...",
+            ".X...XX...XXX..",
+            ".X...XX....XXX.",
+            ".X...XX.....XXX",
+            ".X....XX.XXX...",
+            ".X....XX..XXX..",
+            ".X....XX...XXX.",
+            ".X....XX....XXX",
+            ".X.....XX.XXX..",
+            ".X.....XX..XXX.",
+            ".X.....XX...XXX",
+            ".X......XX.XXX.",
+            ".X......XX..XXX",
+            ".X.......XX.XXX",
+            "..X.XX.XXX.....",
+            "..X.XX..XXX....",
+            "..X.XX...XXX...",
+            "..X.XX....XXX..",
+            "..X.XX.....XXX.",
+            "..X.XX......XXX",
+            "..X..XX.XXX....",
+            "..X..XX..XXX...",
+            "..X..XX...XXX..",
+            "..X..XX....XXX.",
+            "..X..XX.....XXX",
+            "..X...XX.XXX...",
+            "..X...XX..XXX..",
+            "..X...XX...XXX.",
+            "..X...XX....XXX",
+            "..X....XX.XXX..",
+            "..X....XX..XXX.",
+            "..X....XX...XXX",
+            "..X.....XX.XXX.",
+            "..X.....XX..XXX",
+            "..X......XX.XXX",
+            "...X.XX.XXX....",
+            "...X.XX..XXX...",
+            "...X.XX...XXX..",
+            "...X.XX....XXX.",
+            "...X.XX.....XXX",
+            "...X..XX.XXX...",
+            "...X..XX..XXX..",
+            "...X..XX...XXX.",
+            "...X..XX....XXX",
+            "...X...XX.XXX..",
+            "...X...XX..XXX.",
+            "...X...XX...XXX",
+            "...X....XX.XXX.",
+            "...X....XX..XXX",
+            "...X.....XX.XXX",
+            "....X.XX.XXX...",
+            "....X.XX..XXX..",
+            "....X.XX...XXX.",
+            "....X.XX....XXX",
+            "....X..XX.XXX..",
+            "....X..XX..XXX.",
+            "....X..XX...XXX",
+            "....X...XX.XXX.",
+            "....X...XX..XXX",
+            "....X....XX.XXX",
+            ".....X.XX.XXX..",
+            ".....X.XX..XXX.",
+            ".....X.XX...XXX",
+            ".....X..XX.XXX.",
+            ".....X..XX..XXX",
+            ".....X...XX.XXX",
+            "......X.XX.XXX.",
+            "......X.XX..XXX",
+            "......X..XX.XXX",
+            ".......X.XX.XXX",
         ];
 
         assert!(is_equiv(&bitmaps, n, &expected));
@@ -717,8 +808,7 @@ mod tests {
     fn test_constrain_poss_filled_and_blank() {
         // Check constraining a block of 2 in 5, where the middle bit
         // must be set, and the next must not.
-        let poss = constrain_poss(&expand(&vec![2], 5), 0b00100, 0b00010)
-            .unwrap();
+        let poss = constrain_poss(&expand(&vec![2], 5), 0b00100, 0b00010).unwrap();
         assert!(is_equiv(&poss, 5, &vec![".XX.."]));
     }
 
@@ -726,8 +816,10 @@ mod tests {
     fn test_constrain_poss_impossible() {
         // Check constraining a block of 2 in 5, where 4 bits must not
         // be set - impossible.
-        assert_eq!(constrain_poss(&expand(&vec![2], 5), 0, 0b01111),
-                   Err(ConstraintSolverFailure::NoSolutions));
+        assert_eq!(
+            constrain_poss(&expand(&vec![2], 5), 0, 0b01111),
+            Err(ConstraintSolverFailure::NoSolutions)
+        );
     }
 
     #[test]
@@ -765,7 +857,9 @@ mod tests {
                      2
                      1
 
-                     ".parse::<Input>().unwrap();
+                     "
+        .parse::<Input>()
+        .unwrap();
 
         let solver = Solver::from_input(&input);
         let w = 5;
@@ -775,24 +869,36 @@ mod tests {
         assert_eq!(solver.height, h);
 
         assert_eq!(solver.poss_rows.len(), h);
-        assert!(is_equiv(&solver.poss_rows[0], w,
-                         &vec!["X.XX.", "X..XX", ".X.XX"]));
-        assert!(is_equiv(&solver.poss_rows[1], w,
-                         &vec!["X....", ".X...", "..X..", "...X.", "....X"]));
-        assert!(is_equiv(&solver.poss_rows[2], w,
-                         &vec!["XX...", ".XX..", "..XX.", "...XX"]));
+        assert!(is_equiv(
+            &solver.poss_rows[0],
+            w,
+            &vec!["X.XX.", "X..XX", ".X.XX"]
+        ));
+        assert!(is_equiv(
+            &solver.poss_rows[1],
+            w,
+            &vec!["X....", ".X...", "..X..", "...X.", "....X"]
+        ));
+        assert!(is_equiv(
+            &solver.poss_rows[2],
+            w,
+            &vec!["XX...", ".XX..", "..XX.", "...XX"]
+        ));
 
         assert_eq!(solver.poss_cols.len(), w);
-        assert!(is_equiv(&solver.poss_cols[0], h,
-                         &vec!["..."]));
-        assert!(is_equiv(&solver.poss_cols[1], h,
-                         &vec!["X..", ".X.", "..X"]));
-        assert!(is_equiv(&solver.poss_cols[2], h,
-                         &vec!["XX.", ".XX"]));
-        assert!(is_equiv(&solver.poss_cols[3], h,
-                         &vec!["X..", ".X.", "..X"]));
-        assert!(is_equiv(&solver.poss_cols[4], h,
-                         &vec!["..."]));
+        assert!(is_equiv(&solver.poss_cols[0], h, &vec!["..."]));
+        assert!(is_equiv(
+            &solver.poss_cols[1],
+            h,
+            &vec!["X..", ".X.", "..X"]
+        ));
+        assert!(is_equiv(&solver.poss_cols[2], h, &vec!["XX.", ".XX"]));
+        assert!(is_equiv(
+            &solver.poss_cols[3],
+            h,
+            &vec!["X..", ".X.", "..X"]
+        ));
+        assert!(is_equiv(&solver.poss_cols[4], h, &vec!["..."]));
 
         assert_eq!(solver.known_filled.len(), h);
         assert!(solver.known_filled.iter().all(|&x| x == 0));
@@ -814,13 +920,14 @@ mod tests {
                      2
                      1
 
-                     ".parse::<Input>().unwrap();
+                     "
+        .parse::<Input>()
+        .unwrap();
 
         let solver = Solver::from_input(&input);
 
         // Count row solutions, and column solutions.
-        assert_eq!(solver.size(),
-                   (3 + 5 + 4) - 3 + (1 + 3 + 2 + 3 + 1) - 5);
+        assert_eq!(solver.size(), (3 + 5 + 4) - 3 + (1 + 3 + 2 + 3 + 1) - 5);
     }
 
     #[test]
@@ -831,7 +938,9 @@ mod tests {
                      --
                      1
                      1
-                     ".parse::<Input>().unwrap();
+                     "
+        .parse::<Input>()
+        .unwrap();
 
         let solver = Solver::from_input(&input);
 
@@ -843,7 +952,9 @@ mod tests {
     fn test_transpose() -> Result<(), ConstraintSolverFailure> {
         let input = "5 3 \n --
                      1 \n \n 5 \n --
-                     1 1 \n 1 \n 1 \n 1 \n 1".parse::<Input>().unwrap();
+                     1 1 \n 1 \n 1 \n 1 \n 1"
+            .parse::<Input>()
+            .unwrap();
         // Build a solver and fill in some known_XXX constraints.
         let mut solver_before = Solver::from_input(&input);
         solver_before.constrain_h()?;
@@ -857,19 +968,20 @@ mod tests {
         assert_eq!(solver_after.poss_cols, solver_before.poss_rows);
 
         // Check pre-transpose for paranoia.
-        assert_eq!(solver_before.known_filled,
-                   vec![0b00000, 0b00000, 0b11111]);
-        assert_eq!(solver_before.known_blanks,
-                   vec![0b00000, 0b11111, 0b00000]);
+        assert_eq!(solver_before.known_filled, vec![0b00000, 0b00000, 0b11111]);
+        assert_eq!(solver_before.known_blanks, vec![0b00000, 0b11111, 0b00000]);
 
-        assert_eq!(solver_after.known_filled,
-                   vec![0b001, 0b001, 0b001, 0b001, 0b001]);
-        assert_eq!(solver_after.known_blanks,
-                   vec![0b010, 0b010, 0b010, 0b010, 0b010]);
+        assert_eq!(
+            solver_after.known_filled,
+            vec![0b001, 0b001, 0b001, 0b001, 0b001]
+        );
+        assert_eq!(
+            solver_after.known_blanks,
+            vec![0b010, 0b010, 0b010, 0b010, 0b010]
+        );
 
         Ok(())
     }
-
 
     #[test]
     fn test_solve_tiny() -> Result<(), ConstraintSolverFailure> {
@@ -880,14 +992,18 @@ mod tests {
                      --
                      1
                      1
-                     ".parse::<Input>().unwrap();
+                     "
+        .parse::<Input>()
+        .unwrap();
         let mut solver = Solver::from_input(&input);
         solver.solve_constraints()?;
-        assert_eq!(solver.to_string(),
-                  "\
+        assert_eq!(
+            solver.to_string(),
+            "\
 XX
 ..
-");
+"
+        );
 
         Ok(())
     }
@@ -909,18 +1025,22 @@ XX
                      2
 
 
-                     ".parse::<Input>().unwrap();
+                     "
+        .parse::<Input>()
+        .unwrap();
         let mut solver = Solver::from_input(&input);
         solver.solve_constraints()?;
-        assert_eq!(solver.to_string(),
-                  "\
+        assert_eq!(
+            solver.to_string(),
+            "\
 ......
 X.....
 ......
 ..XX..
 ..XX..
 ......
-");
+"
+        );
 
         Ok(())
     }
@@ -943,11 +1063,14 @@ X.....
                      \n\n\n\n\n\n\n\n
                      2
                      2
-                     ".parse::<Input>().unwrap();
+                     "
+        .parse::<Input>()
+        .unwrap();
         let mut solver = Solver::from_input(&input);
         solver.solve_constraints()?;
-        assert_eq!(solver.to_string(),
-                  "\
+        assert_eq!(
+            solver.to_string(),
+            "\
 X...............................................................
 ................................................................
 ................................................................
@@ -1012,7 +1135,8 @@ X...............................................................
 ................................................................
 ..............................................................XX
 ..............................................................XX
-");
+"
+        );
 
         Ok(())
     }
@@ -1028,10 +1152,14 @@ X...............................................................
                      1
 
                      1
-                     ".parse::<Input>().unwrap();
+                     "
+        .parse::<Input>()
+        .unwrap();
         let mut solver = Solver::from_input(&input);
-        assert_eq!(solver.solve_constraints(),
-                   Err(ConstraintSolverFailure::Stuck));
+        assert_eq!(
+            solver.solve_constraints(),
+            Err(ConstraintSolverFailure::Stuck)
+        );
     }
 
     #[test]
@@ -1046,22 +1174,30 @@ X...............................................................
                      1
 
                      1
-                     ".parse::<Input>().unwrap();
+                     "
+        .parse::<Input>()
+        .unwrap();
         let solver = Solver::from_input(&input);
         let found_solutions = solve_recursive(solver)
             .iter()
             .map(|s| s.to_string())
             .collect::<HashSet<String>>();
 
-        let known_solutions: HashSet<String> = ["\
+        let known_solutions: HashSet<String> = [
+            "\
 X..
 ...
 ..X
-", "\
+",
+            "\
 ..X
 ...
 X..
-"].iter().map(|s| s.to_string()).collect();
+",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
 
         assert_eq!(found_solutions, known_solutions);
     }
@@ -1078,7 +1214,9 @@ X..
                      1
 
                      1
-                     ".parse::<Input>().unwrap();
+                     "
+        .parse::<Input>()
+        .unwrap();
         let solver = Solver::from_input(&input);
         let found_solutions = solve_recursive(solver)
             .iter()
@@ -1094,7 +1232,9 @@ X..
         let input = "0 0
                      --
                      --
-                     ".parse::<Input>().unwrap();
+                     "
+        .parse::<Input>()
+        .unwrap();
         let solver = Solver::from_input(&input);
         let found_solutions = solve_recursive(solver)
             .iter()
@@ -1120,7 +1260,9 @@ X..
 
 
                      --
-                     ".parse::<Input>().unwrap();
+                     "
+        .parse::<Input>()
+        .unwrap();
         let solver = Solver::from_input(&input);
         let found_solutions = solve_recursive(solver)
             .iter()
@@ -1146,7 +1288,9 @@ X..
 
 
 
-                     ".parse::<Input>().unwrap();
+                     "
+        .parse::<Input>()
+        .unwrap();
         let solver = Solver::from_input(&input);
         let found_solutions = solve_recursive(solver)
             .iter()
@@ -1160,5 +1304,4 @@ X..
 
         assert_eq!(found_solutions, known_solutions);
     }
-
 }
