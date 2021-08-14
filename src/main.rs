@@ -478,7 +478,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .iter()
         .map(|s| s.to_string())
         .collect::<Vec<_>>()
-        .concat();
+        .join("\n");
 
     println!("{}", solutions);
 

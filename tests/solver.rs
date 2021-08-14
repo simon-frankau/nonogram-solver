@@ -19,6 +19,20 @@ fn test_cli_success() {
 }
 
 #[test]
+fn test_cli_success_multi() {
+   let expected = std::fs::read_to_string("results/multi_res.txt")
+       .unwrap();
+
+   let mut cmd = Command::cargo_bin("nonogram-solver").unwrap();
+
+   cmd.pipe_stdin("examples/multi.txt")
+       .unwrap()
+       .assert()
+       .success()
+       .stdout(expected);
+}
+
+#[test]
 fn test_cli_failure() {
    let mut cmd = Command::cargo_bin("nonogram-solver").unwrap();
 
