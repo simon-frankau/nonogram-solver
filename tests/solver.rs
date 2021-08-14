@@ -6,39 +6,37 @@ use predicates::prelude::*;
 
 #[test]
 fn test_cli_success() {
-   let expected = std::fs::read_to_string("results/traffic_light_res.txt")
-       .unwrap();
+    let expected = std::fs::read_to_string("results/traffic_light_res.txt").unwrap();
 
-   let mut cmd = Command::cargo_bin("nonogram-solver").unwrap();
+    let mut cmd = Command::cargo_bin("nonogram-solver").unwrap();
 
-   cmd.pipe_stdin("examples/traffic_light.txt")
-       .unwrap()
-       .assert()
-       .success()
-       .stdout(expected);
+    cmd.pipe_stdin("examples/traffic_light.txt")
+        .unwrap()
+        .assert()
+        .success()
+        .stdout(expected);
 }
 
 #[test]
 fn test_cli_success_multi() {
-   let expected = std::fs::read_to_string("results/multi_res.txt")
-       .unwrap();
+    let expected = std::fs::read_to_string("results/multi_res.txt").unwrap();
 
-   let mut cmd = Command::cargo_bin("nonogram-solver").unwrap();
+    let mut cmd = Command::cargo_bin("nonogram-solver").unwrap();
 
-   cmd.pipe_stdin("examples/multi.txt")
-       .unwrap()
-       .assert()
-       .success()
-       .stdout(expected);
+    cmd.pipe_stdin("examples/multi.txt")
+        .unwrap()
+        .assert()
+        .success()
+        .stdout(expected);
 }
 
 #[test]
 fn test_cli_failure() {
-   let mut cmd = Command::cargo_bin("nonogram-solver").unwrap();
+    let mut cmd = Command::cargo_bin("nonogram-solver").unwrap();
 
-   cmd.write_stdin("This is not a valid input.")
-       .assert()
-       .failure()
-       .stdout("")
-       .stderr(predicate::str::contains("Expected three sections"));
+    cmd.write_stdin("This is not a valid input.")
+        .assert()
+        .failure()
+        .stdout("")
+        .stderr(predicate::str::contains("Expected three sections"));
 }
